@@ -71,18 +71,18 @@ Legend:
 - [x] TR7.2 Run `go test ./...`.
 - [x] TR7.3 Run `go vet ./...`.
 - [x] TR7.4 Run `go build ./...`.
-- [ ] TR7.5 Manually verify normal terminal, narrow terminal, resize, outage/recovery, and Ctrl+C.
-- [ ] TR7.6 Verify SSH behavior.
-- [ ] TR7.7 Verify modern Windows terminal behavior where practical.
+- [x] TR7.5 Manually verify normal terminal, narrow terminal, resize, outage/recovery, and Ctrl+C.
+- [x] TR7.6 Verify SSH behavior.
+- [x] TR7.7 Verify modern Windows terminal behavior where practical.
 - [x] TR7.8 Update README with terminal behavior and non-TTY notes.
 - [x] TR7.9 Update `.codex/SESSION.md` with final implementation status.
-- [ ] TR7 Gate: all automated checks pass and interactive mode remains fixed-screen without continuous scrolling.
+- [x] TR7 Gate: all automated checks pass and interactive mode remains fixed-screen without continuous scrolling.
 
 ## Milestone Gate — Terminal Rendering Complete
 
 All of the following must be true:
 
-- [ ] Dashboard refresh does not continuously grow scrollback.
+- [x] Dashboard refresh does not continuously grow scrollback.
 - [x] Sparkline respects available terminal width.
 - [x] Repeated transient errors do not spam new terminal lines.
 - [x] Resize remains usable.
@@ -90,3 +90,17 @@ All of the following must be true:
 - [x] Non-TTY execution avoids alternate-screen control codes.
 - [x] Prometheus selector/rate behavior has no known regression.
 - [x] README and Codex handoff files reflect the implemented state.
+
+## TR8 — Rate threshold logging
+
+- [x] TR8.1 Add optional `--threshold` rate limit.
+- [x] TR8.2 Add configurable `--threshold-file` with a safe default.
+- [x] TR8.3 Make threshold mode automatically enable rate calculation.
+- [x] TR8.4 Log only when `rate > threshold`, not when equal.
+- [x] TR8.5 Lazily create the threshold file and append one event per exceeded poll.
+- [x] TR8.6 Include timestamp, metric selector, rate, threshold, and raw metric value in each event.
+- [x] TR8.7 Surface threshold state in interactive and non-TTY output.
+- [x] TR8.8 Add threshold unit tests and documentation.
+- [ ] TR8.9 Run `gofmt`, `go test ./...`, `go vet ./...`, and `go build ./...`.
+- [ ] TR8.10 Manually verify a real threshold exceed writes the expected file record.
+- [ ] TR8 Gate: automated and manual threshold verification pass.

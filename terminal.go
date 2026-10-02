@@ -36,8 +36,12 @@ type UIState struct {
 	Series      MetricSeries
 	HasSeries   bool
 	History     *History
-	Rate        bool
-	Err         error
+	Rate              bool
+	ThresholdEnabled  bool
+	Threshold         float64
+	ThresholdExceeded bool
+	ThresholdFile     string
+	Err               error
 	CheckedAt   time.Time
 	LastSuccess time.Time
 }
@@ -209,6 +213,14 @@ func buildFrame(state UIState, size TerminalSize) string {
 			}
 		}
 
+		if state.ThresholdEnabled {
+			thresholdLine := fmt.Sprintf("threshold: %s/s", formatNumber(state.Threshold))
+			if state.ThresholdExceeded {
+				thresholdLine += " EXCEEDED"
+			}
+			lines = append(lines, thresholdLine)
+		}
+
 		if !state.LastSuccess.IsZero() {
 			lines = append(lines, fmt.Sprintf("updated: %s", state.LastSuccess.Format(time.RFC3339)))
 		}
@@ -277,6 +289,14 @@ func buildPlainLine(state UIState) string {
 			} else {
 				parts = append(parts, "rate=--/s")
 			}
+		}
+
+		if state.ThresholdEnabled {
+			parts = append(
+				parts,
+				"threshold="+formatNumber(state.Threshold)+"/s",
+				fmt.Sprintf("threshold_exceeded=%t", state.ThresholdExceeded),
+			)
 		}
 	}
 

@@ -398,3 +398,33 @@ func TestUnicodeSparklineAndTruncationRemainValidUTF8(t *testing.T) {
 		t.Fatalf("truncated line width = %d, want <= 12", got)
 	}
 }
+
+
+func TestBuildFrameShowsThresholdState(t *testing.T) {
+	state := testState()
+	state.ThresholdEnabled = true
+	state.Threshold = 200
+	state.ThresholdExceeded = true
+
+	frame := buildFrame(state, TerminalSize{Width: 200, Height: 24})
+	if !strings.Contains(frame, "threshold: 200/s EXCEEDED") {
+		t.Fatalf("threshold state missing from frame: %q", frame)
+	}
+}
+
+func TestPlainOutputShowsThresholdState(t *testing.T) {
+	state := testState()
+	state.ThresholdEnabled = true
+	state.Threshold = 200
+	state.ThresholdExceeded = true
+
+	line := buildPlainLine(state)
+	for _, want := range []string{
+		"threshold=200/s",
+		"threshold_exceeded=true",
+	} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("plain output missing %q: %q", want, line)
+		}
+	}
+}

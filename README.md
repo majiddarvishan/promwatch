@@ -20,6 +20,7 @@ No Prometheus server, Grafana, browser, or external database is required.
 - In-place error/status display
 - Plain non-TTY output for pipes, files, service logs, and CI
 - Graceful Ctrl+C / SIGTERM shutdown path
+- Optional rate-threshold event logging to an append-only file
 
 ## Requirements
 
@@ -65,6 +66,8 @@ Counter rate:
 - `--metric`: required metric selector
 - `--rate`: show per-second rate; valid only for a metric exposed as `counter`
 - `--interval`: polling interval. Default: `1s`
+- `--threshold`: log an event whenever the calculated rate is strictly greater than this non-negative value
+- `--threshold-file`: threshold event log path. Default: `promwatch-threshold.log`
 
 ## Metric selection
 
@@ -186,6 +189,38 @@ If the counter decreases, promwatch treats it as a reset and calculates from the
 
 The first sample displays no rate because no previous sample exists.
 
+## Rate threshold logging
+
+Use `--threshold` to persist rate spikes to a file.
+
+Example:
+
+```bash
+./promwatch \
+  --url http://localhost:9999/metrics \
+  --metric 'submit_packets{name="receive",system_id="smpp_client_0"}' \
+  --threshold 2500 \
+  --threshold-file ./submit-rate-threshold.log \
+  --interval 1s
+```
+
+Setting `--threshold` automatically enables rate calculation, so `--rate` is optional in this mode.
+
+The comparison is strict: `rate > threshold`. A rate equal to the threshold is not logged.
+
+The file is created lazily: if the threshold is never exceeded, no threshold log file is created. Existing files are opened in append mode.
+
+Each exceeded poll produces one line:
+
+```text
+2026-10-03T02:15:00.123+03:30 metric="submit_packets{name=\"receive\",system_id=\"smpp_client_0\"}" rate=2740/s threshold=2500/s value=481250
+```
+
+Each record contains the poll timestamp, selected metric, calculated rate, configured threshold, and current raw metric value.
+
+While enabled, the interactive dashboard also shows the threshold and marks the current poll as `EXCEEDED` when applicable. Non-TTY output includes `threshold` and `threshold_exceeded`.
+
+If a threshold event cannot be written, promwatch returns a visible runtime error instead of silently dropping the event.
 ## History
 
 Up to 3600 samples are kept in memory.

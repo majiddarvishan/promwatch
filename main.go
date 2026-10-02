@@ -445,10 +445,13 @@ func validateRateMetric(series MetricSeries) error {
 }
 
 type monitorConfig struct {
-	URL      string
-	Selector Selector
-	Rate     bool
-	Interval time.Duration
+	URL              string
+	Selector         Selector
+	Rate             bool
+	Interval         time.Duration
+	ThresholdEnabled bool
+	Threshold        float64
+	ThresholdFile    string
 }
 
 func runMonitor(
@@ -459,6 +462,30 @@ func runMonitor(
 ) (runErr error) {
 	if config.Interval <= 0 {
 		return errors.New("interval must be greater than zero")
+	}
+	if config.ThresholdEnabled {
+		if math.IsNaN(config.Threshold) || math.IsInf(config.Threshold, 0) || config.Threshold < 0 {
+			return errors.New("threshold must be a finite non-negative number")
+		}
+		if strings.TrimSpace(config.ThresholdFile) == "" {
+			return errors.New("threshold file must not be empty")
+		}
+		config.Rate = true
+	}
+
+	var thresholdLogger *ThresholdLogger
+	if config.ThresholdEnabled {
+		thresholdLogger = NewThresholdLogger(config.ThresholdFile)
+		defer func() {
+			if err := thresholdLogger.Close(); err != nil {
+				closeErr := fmt.Errorf("closing threshold log: %w", err)
+				if runErr == nil {
+					runErr = closeErr
+					return
+				}
+				runErr = errors.Join(runErr, closeErr)
+			}
+		}()
 	}
 
 	if err := renderer.Start(); err != nil {
@@ -481,9 +508,12 @@ func runMonitor(
 
 	history := &History{}
 	state := UIState{
-		Selector: config.Selector,
-		History:  history,
-		Rate:     config.Rate,
+		Selector:         config.Selector,
+		History:          history,
+		Rate:             config.Rate,
+		ThresholdEnabled: config.ThresholdEnabled,
+		Threshold:        config.Threshold,
+		ThresholdFile:    config.ThresholdFile,
 	}
 
 	renderState := func() error {
@@ -523,6 +553,25 @@ func runMonitor(
 		appendHistory(history, series.Value, now)
 		state.Err = nil
 		state.LastSuccess = now
+		state.ThresholdExceeded = false
+
+		if config.ThresholdEnabled {
+			rateValue, exceeded := thresholdExceeded(history, config.Threshold)
+			state.ThresholdExceeded = exceeded
+			if exceeded {
+				event := ThresholdEvent{
+					Timestamp:   now,
+					Selector:    config.Selector,
+					Rate:        rateValue,
+					Threshold:   config.Threshold,
+					MetricValue: series.Value,
+				}
+				if err := thresholdLogger.Record(event); err != nil {
+					return fmt.Errorf("writing threshold event: %w", err)
+				}
+			}
+		}
+
 		return renderState()
 	}
 
@@ -577,6 +626,18 @@ func main() {
 		"poll interval",
 	)
 
+	threshold := flag.Float64(
+		"threshold",
+		math.NaN(),
+		"log an event when the calculated rate is greater than this value",
+	)
+
+	thresholdFile := flag.String(
+		"threshold-file",
+		"promwatch-threshold.log",
+		"file used to append threshold events",
+	)
+
 	flag.Parse()
 
 	if *metric == "" {
@@ -595,6 +656,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	thresholdEnabled := !math.IsNaN(*threshold)
+	if thresholdEnabled {
+		if math.IsInf(*threshold, 0) || *threshold < 0 {
+			fmt.Fprintln(os.Stderr, "error: --threshold must be a finite non-negative number")
+			os.Exit(1)
+		}
+		if strings.TrimSpace(*thresholdFile) == "" {
+			fmt.Fprintln(os.Stderr, "error: --threshold-file must not be empty")
+			os.Exit(1)
+		}
+	}
+
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -608,10 +681,13 @@ func main() {
 
 	renderer := NewTerminalRenderer(os.Stdout)
 	config := monitorConfig{
-		URL:      *url,
-		Selector: selector,
-		Rate:     *rate,
-		Interval: *interval,
+		URL:              *url,
+		Selector:         selector,
+		Rate:             *rate || thresholdEnabled,
+		Interval:         *interval,
+		ThresholdEnabled: thresholdEnabled,
+		Threshold:        *threshold,
+		ThresholdFile:    *thresholdFile,
 	}
 
 	if err := runMonitor(ctx, client, config, renderer); err != nil {
