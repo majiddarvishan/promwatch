@@ -23,21 +23,21 @@ Legend:
 
 ## TR2 — Stable interactive screen
 
-- [ ] TR2.1 Enter alternate screen in interactive mode.
-- [ ] TR2.2 Hide cursor while dashboard is active.
-- [ ] TR2.3 Redraw from cursor home instead of appending a new dashboard frame.
-- [ ] TR2.4 Clear stale remainder after shorter frames.
-- [ ] TR2.5 Restore cursor and normal screen on shutdown.
-- [ ] TR2 Gate: repeated successful polling does not grow terminal scrollback.
+- [x] TR2.1 Enter alternate screen in interactive mode.
+- [x] TR2.2 Hide cursor while dashboard is active.
+- [x] TR2.3 Redraw from cursor home instead of appending a new dashboard frame.
+- [x] TR2.4 Clear stale remainder after shorter frames.
+- [x] TR2.5 Restore cursor and normal screen on shutdown.
+- [x] TR2 Gate: repeated successful polling does not grow terminal scrollback.
 
 ## TR3 — Responsive dimensions and resize
 
-- [ ] TR3.1 Detect current terminal width/height.
-- [ ] TR3.2 Replace hard-coded 120-column sparkline behavior.
-- [ ] TR3.3 Bound all lines to avoid accidental wrapping where practical.
-- [ ] TR3.4 Recalculate layout on terminal resize/poll refresh.
-- [ ] TR3.5 Add safe fallback dimensions when size detection fails.
-- [ ] TR3 Gate: narrow/wide resizing does not create continuous scrolling or corrupt the frame.
+- [x] TR3.1 Detect current terminal width/height.
+- [x] TR3.2 Replace hard-coded 120-column sparkline behavior.
+- [x] TR3.3 Bound all lines to avoid accidental wrapping where practical.
+- [x] TR3.4 Recalculate layout on terminal resize/poll refresh.
+- [x] TR3.5 Add safe fallback dimensions when size detection fails.
+- [x] TR3 Gate: narrow/wide resizing does not create continuous scrolling or corrupt the frame.
 
 ## TR4 — Error and status rendering
 
@@ -83,9 +83,9 @@ Legend:
 All of the following must be true:
 
 - [ ] Dashboard refresh does not continuously grow scrollback.
-- [ ] Sparkline respects available terminal width.
+- [x] Sparkline respects available terminal width.
 - [ ] Repeated transient errors do not spam new terminal lines.
-- [ ] Resize remains usable.
+- [x] Resize remains usable.
 - [ ] Ctrl+C/SIGTERM restore terminal state.
 - [ ] Non-TTY execution avoids alternate-screen control codes.
 - [ ] Prometheus selector/rate behavior has no known regression.

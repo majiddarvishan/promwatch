@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"math"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestBuildSparkline(t *testing.T) {
@@ -23,7 +25,7 @@ func TestBuildSparkline(t *testing.T) {
 	}
 }
 
-func TestBuildFramePreservesLegacyLayout(t *testing.T) {
+func TestBuildFramePreservesLayoutAtWideSize(t *testing.T) {
 	base := time.Unix(100, 0)
 	selector := Selector{Name: "submit_packets", Labels: map[string]string{"name": "receive"}}
 	series := MetricSeries{Name: "submit_packets", Type: "counter", Value: 1250}
@@ -32,7 +34,13 @@ func TestBuildFramePreservesLegacyLayout(t *testing.T) {
 		Times:  []time.Time{base, base.Add(time.Second)},
 	}
 
-	got := buildFrame(selector, series, history, true)
+	got := buildFrame(
+		selector,
+		series,
+		history,
+		true,
+		TerminalSize{Width: 200, Height: 24},
+	)
 	want := "promwatch\n" +
 		"metric : submit_packets{name=\"receive\"}\n" +
 		"type   : counter\n" +
@@ -40,16 +48,75 @@ func TestBuildFramePreservesLegacyLayout(t *testing.T) {
 		"rate   : 250/s\n" +
 		"\n" +
 		"▁█\n\n\n" +
-		"samples: 2    interval: 1s\n"
+		"samples: 2    interval: 1s"
 
 	if got != want {
-		t.Fatalf("frame mismatch\n--- got ---\n%s--- want ---\n%s", got, want)
+		t.Fatalf("frame mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 
-func TestTerminalRendererWritesLegacyClearAndFrame(t *testing.T) {
+func TestBuildFrameBoundsWidthAndHeight(t *testing.T) {
+	base := time.Unix(100, 0)
+	selector := Selector{
+		Name: "very_long_metric_name",
+		Labels: map[string]string{
+			"instance": "a-very-long-instance-name",
+		},
+	}
+	series := MetricSeries{Name: selector.Name, Type: "counter", Value: 1250}
+	history := &History{
+		Values: []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+		Times:  []time.Time{base, base.Add(time.Second)},
+	}
+
+	const (
+		terminalWidth  = 10
+		terminalHeight = 7
+	)
+
+	frame := buildFrame(
+		selector,
+		series,
+		history,
+		true,
+		TerminalSize{Width: terminalWidth, Height: terminalHeight},
+	)
+	lines := strings.Split(frame, "\n")
+
+	if len(lines) > terminalHeight {
+		t.Fatalf("frame has %d lines, want <= %d", len(lines), terminalHeight)
+	}
+
+	maxLineWidth := drawableWidth(terminalWidth)
+	for _, line := range lines {
+		if got := utf8.RuneCountInString(line); got > maxLineWidth {
+			t.Fatalf("line %q has width %d, want <= %d", line, got, maxLineWidth)
+		}
+	}
+}
+
+func TestRendererInteractiveLifecycle(t *testing.T) {
 	var buf bytes.Buffer
-	renderer := NewTerminalRenderer(&buf)
+	renderer := newTerminalRenderer(
+		&buf,
+		true,
+		func() (int, int, error) { return 80, 24, nil },
+	)
+
+	if err := renderer.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	wantStart := enterAlternateScreenSequence +
+		hideCursorSequence +
+		clearScreenSequence +
+		cursorHomeSequence
+	if got := buf.String(); got != wantStart {
+		t.Fatalf("start output = %q, want %q", got, wantStart)
+	}
+
+	buf.Reset()
+
 	selector := Selector{Name: "gauge", Labels: map[string]string{}}
 	series := MetricSeries{Name: "gauge", Type: "gauge", Value: 3}
 	history := &History{Values: []float64{3}, Times: []time.Time{time.Unix(0, 0)}}
@@ -57,7 +124,85 @@ func TestTerminalRendererWritesLegacyClearAndFrame(t *testing.T) {
 	if err := renderer.Render(selector, series, history, false); err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
-	if !strings.HasPrefix(buf.String(), clearScreenSequence+"promwatch\n") {
-		t.Fatalf("rendered output does not preserve legacy clear sequence: %q", buf.String())
+	if !strings.HasPrefix(buf.String(), cursorHomeSequence+"promwatch\n") {
+		t.Fatalf("render output does not begin at cursor home: %q", buf.String())
+	}
+	if !strings.HasSuffix(buf.String(), clearToEndSequence) {
+		t.Fatalf("render output does not clear stale remainder: %q", buf.String())
+	}
+	if strings.Contains(buf.String(), clearScreenSequence) {
+		t.Fatalf("render unexpectedly performs full-screen clear: %q", buf.String())
+	}
+
+	buf.Reset()
+	if err := renderer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	wantClose := showCursorSequence + leaveAlternateScreenSequence
+	if got := buf.String(); got != wantClose {
+		t.Fatalf("close output = %q, want %q", got, wantClose)
+	}
+}
+
+func TestRendererReadsSizeOnEveryRender(t *testing.T) {
+	var buf bytes.Buffer
+	width := 20
+	calls := 0
+	renderer := newTerminalRenderer(
+		&buf,
+		true,
+		func() (int, int, error) {
+			calls++
+			return width, 24, nil
+		},
+	)
+	renderer.started = true
+
+	selector := Selector{Name: "gauge", Labels: map[string]string{}}
+	series := MetricSeries{Name: "gauge", Type: "gauge", Value: 3}
+	history := &History{
+		Values: []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
+		Times:  []time.Time{time.Unix(0, 0)},
+	}
+
+	if err := renderer.Render(selector, series, history, false); err != nil {
+		t.Fatalf("first Render() error = %v", err)
+	}
+	width = 10
+	if err := renderer.Render(selector, series, history, false); err != nil {
+		t.Fatalf("second Render() error = %v", err)
+	}
+
+	if calls != 2 {
+		t.Fatalf("size provider calls = %d, want 2", calls)
+	}
+}
+
+func TestRendererFallsBackWhenSizeUnavailable(t *testing.T) {
+	renderer := newTerminalRenderer(
+		&bytes.Buffer{},
+		true,
+		func() (int, int, error) { return 0, 0, errors.New("size unavailable") },
+	)
+
+	got := renderer.currentSize()
+	want := TerminalSize{
+		Width:  fallbackTerminalWidth,
+		Height: fallbackTerminalHeight,
+	}
+	if got != want {
+		t.Fatalf("currentSize() = %#v, want %#v", got, want)
+	}
+}
+
+func TestNormalizeTerminalSizeUsesPerDimensionFallback(t *testing.T) {
+	got := normalizeTerminalSize(0, 12)
+	if got.Width != fallbackTerminalWidth || got.Height != 12 {
+		t.Fatalf("normalizeTerminalSize() = %#v", got)
+	}
+
+	got = normalizeTerminalSize(50, 0)
+	if got.Width != 50 || got.Height != fallbackTerminalHeight {
+		t.Fatalf("normalizeTerminalSize() = %#v", got)
 	}
 }

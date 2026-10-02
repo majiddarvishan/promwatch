@@ -497,6 +497,15 @@ func main() {
 
 	history := &History{}
 	renderer := NewTerminalRenderer(os.Stdout)
+	if err := renderer.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: initializing terminal: %v\n", err)
+		return
+	}
+	defer func() {
+		if err := renderer.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: restoring terminal: %v\n", err)
+		}
+	}()
 
 	fetch := func() {
 		series, err := fetchMetric(ctx, client, *url, selector)
@@ -529,7 +538,6 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println()
 			return
 
 		case <-ticker.C:
