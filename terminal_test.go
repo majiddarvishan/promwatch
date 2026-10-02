@@ -292,3 +292,110 @@ func TestNormalizeTerminalSizeUsesPerDimensionFallback(t *testing.T) {
 		t.Fatalf("normalizeTerminalSize() = %#v", got)
 	}
 }
+
+
+type failOnceWriter struct {
+	buf    bytes.Buffer
+	failed bool
+}
+
+func (w *failOnceWriter) Write(p []byte) (int, error) {
+	if !w.failed {
+		w.failed = true
+		n := len(p) / 2
+		if n == 0 {
+			n = 1
+		}
+		_, _ = w.buf.Write(p[:n])
+		return n, errors.New("simulated write failure")
+	}
+	return w.buf.Write(p)
+}
+
+func TestRendererCloseIsIdempotent(t *testing.T) {
+	var buf bytes.Buffer
+	renderer := newTerminalRenderer(
+		&buf,
+		true,
+		func() (int, int, error) { return 80, 24, nil },
+	)
+
+	if err := renderer.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	buf.Reset()
+
+	if err := renderer.Close(); err != nil {
+		t.Fatalf("first Close() error = %v", err)
+	}
+	first := buf.String()
+
+	if err := renderer.Close(); err != nil {
+		t.Fatalf("second Close() error = %v", err)
+	}
+	if got := buf.String(); got != first {
+		t.Fatalf("second Close() wrote additional output: %q", got)
+	}
+}
+
+func TestRendererStartFailureAttemptsRestore(t *testing.T) {
+	writer := &failOnceWriter{}
+	renderer := newTerminalRenderer(
+		writer,
+		true,
+		func() (int, int, error) { return 80, 24, nil },
+	)
+
+	if err := renderer.Start(); err == nil {
+		t.Fatal("Start() error = nil, want simulated write failure")
+	}
+	if renderer.started {
+		t.Fatal("renderer remains started after failed Start()")
+	}
+	if !strings.Contains(
+		writer.buf.String(),
+		showCursorSequence+leaveAlternateScreenSequence,
+	) {
+		t.Fatalf("failed Start() did not attempt terminal restore: %q", writer.buf.String())
+	}
+}
+
+func TestBuildFrameHandlesTinyTerminal(t *testing.T) {
+	frame := buildFrame(testState(), TerminalSize{Width: 1, Height: 1})
+
+	if !utf8.ValidString(frame) {
+		t.Fatalf("tiny frame is invalid UTF-8: %q", frame)
+	}
+	if utf8.RuneCountInString(frame) > 1 {
+		t.Fatalf("tiny frame width = %d, want <= 1", utf8.RuneCountInString(frame))
+	}
+	if strings.Count(frame, "\n") != 0 {
+		t.Fatalf("tiny frame exceeds one row: %q", frame)
+	}
+}
+
+func TestUnicodeSparklineAndTruncationRemainValidUTF8(t *testing.T) {
+	sparkline := buildSparkline(
+		[]float64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+		6,
+	)
+	if !utf8.ValidString(sparkline) {
+		t.Fatalf("sparkline is invalid UTF-8: %q", sparkline)
+	}
+	if got := utf8.RuneCountInString(sparkline); got != 6 {
+		t.Fatalf("sparkline rune count = %d, want 6", got)
+	}
+	for _, r := range sparkline {
+		if !strings.ContainsRune(sparkChars, r) {
+			t.Fatalf("unexpected sparkline rune %q", r)
+		}
+	}
+
+	line := truncateLine("metric : ایران🙂abcdef", 12)
+	if !utf8.ValidString(line) {
+		t.Fatalf("truncated line is invalid UTF-8: %q", line)
+	}
+	if got := utf8.RuneCountInString(line); got > 12 {
+		t.Fatalf("truncated line width = %d, want <= 12", got)
+	}
+}

@@ -1,418 +1,287 @@
 # promwatch
 
-`promwatch` is a lightweight CLI tool for monitoring Prometheus metrics
-directly from a terminal.
+`promwatch` is a lightweight Go CLI for watching one Prometheus metric series directly in a terminal.
 
-It polls a Prometheus-compatible `/metrics` HTTP endpoint, selects a single
-metric series, keeps a short in-memory history, and renders the values as an
-ANSI/Unicode sparkline.
+It polls a Prometheus-compatible `/metrics` endpoint, selects exactly one series, keeps recent samples in memory, calculates counter rate when requested, and renders a responsive Unicode sparkline.
 
 No Prometheus server, Grafana, browser, or external database is required.
 
 ## Features
 
-- Terminal-only monitoring
-- Reads Prometheus text exposition format
-- Selects metrics using a PromQL-like selector
-- Supports metric labels with `=`
-- Detects `# TYPE` information
-- Supports counter rate calculation
-- Detects ambiguous selectors
-- In-memory history
-- Unicode sparkline visualization
-- Configurable polling interval
-- No external Go dependencies
+- Prometheus text exposition parsing
+- Exact metric-label selection
+- Ambiguous-series detection
+- Counter rate calculation with reset handling
+- Up to 3600 in-memory samples
+- Responsive Unicode sparkline
+- Fixed-screen interactive terminal UI
+- Alternate-screen rendering without poll-by-poll scrollback growth
+- Terminal resize handling
+- In-place error/status display
+- Plain non-TTY output for pipes, files, service logs, and CI
+- Graceful Ctrl+C / SIGTERM shutdown path
 
 ## Requirements
 
 - Go 1.23 or newer
-- A Prometheus-compatible HTTP endpoint
+- A Prometheus-compatible HTTP metrics endpoint
+- For the interactive dashboard, an ANSI/VT-capable terminal
 
-For example:
-
-```text
-http://localhost:9999/metrics
-```
+The terminal implementation uses `golang.org/x/term` for TTY and terminal-size detection.
 
 ## Build
 
-Clone or copy the project and build:
-
 ```bash
-gofmt -w main.go
+go mod tidy
+gofmt -w main.go terminal.go main_test.go terminal_test.go runner_test.go
+go test ./...
+go vet ./...
 go build -o promwatch .
 ```
 
-The project intentionally has no external dependencies.
-
-go.mod:
-
-module promwatch
-
-go 1.23
-Usage
+## Usage
 
 Basic metric:
 
+```bash
 ./promwatch \
   --url http://localhost:9999/metrics \
   --metric 'submit_packets{name="receive",system_id="smpp_client_0"}'
+```
 
-Monitor a counter and display its rate:
+Counter rate:
 
+```bash
 ./promwatch \
   --url http://localhost:9999/metrics \
   --metric 'submit_packets{name="receive",system_id="smpp_client_0"}' \
   --rate \
   --interval 1s
+```
 
-Short form:
+### Options
 
-./promwatch \
-  --metric 'submit_packets{name="receive",system_id="smpp_client_0"}' \
-  --rate
-Command-Line Options
---url
+- `--url`: Prometheus metrics endpoint. Default: `http://localhost:9999/metrics`
+- `--metric`: required metric selector
+- `--rate`: show per-second rate; valid only for a metric exposed as `counter`
+- `--interval`: polling interval. Default: `1s`
 
-Prometheus metrics endpoint.
-
-Default:
-
-http://localhost:9999/metrics
-
-Example:
-
---url http://10.10.10.20:9999/metrics
---metric
-
-Metric selector.
+## Metric selection
 
 A metric can be selected without labels:
 
+```bash
 --metric 'submit_packets'
+```
 
-Or with labels:
-
---metric 'submit_packets{name="receive"}'
-
-Multiple labels can be specified:
-
---metric 'submit_packets{name="receive",system_id="smpp_client_0"}'
-
-Label matching currently supports:
-
-=
-
-For example:
-
-name="receive"
-system_id="smpp_client_0"
-instance="smpp_gateway"
-
-Regular expressions and other PromQL operators such as !=, =~,
-and !~ are not currently supported.
-
---rate
-
-Calculate and display the per-second rate.
-
-Example:
-
---rate
-
---rate is intended for Prometheus counter metrics.
-
-The metric must expose its type:
-
-# TYPE submit_packets counter
-
-The rate is calculated from consecutive samples:
-
-rate = (current_value - previous_value) / elapsed_time
-
-If the counter decreases, promwatch treats it as a counter reset.
-
-For example:
-
-previous = 1000
-current  = 1200
-elapsed  = 1s
-
-rate = 200 packets/s
---interval
-
-Polling interval.
-
-Default:
-
-1s
-
-Example:
-
---interval 500ms
-
-or:
-
---interval 5s
-Metric Selection
-
-promwatch requires the selector to identify exactly one time series.
-
-For example, suppose /metrics contains:
-
-submit_packets{instance="gw1",name="receive",system_id="smpp_client_0"} 1000
-submit_packets{instance="gw2",name="receive",system_id="smpp_client_0"} 2000
-
-This selector:
-
---metric 'submit_packets{name="receive",system_id="smpp_client_0"}'
-
-matches two series.
-
-promwatch will therefore return an error:
-
-selector "submit_packets{name=\"receive\",system_id=\"smpp_client_0\"}"
-matched 2 series; add more labels to select exactly one series
-
-Use:
-
---metric 'submit_packets{instance="gw1",name="receive",system_id="smpp_client_0"}'
-
-to select exactly one series.
-
-This behavior is intentional. promwatch does not silently aggregate
-multiple series because that could produce an incorrect monitoring result.
-
-Example Prometheus Metrics
-
-Given:
-
-# HELP submit_packets Number of submitted packets
-# TYPE submit_packets counter
-
-submit_packets{instance="smpp_gateway",ip="127.0.0.1",name="receive",system_id="smpp_client_0"} 10000
-submit_packets{instance="smpp_gateway",ip="127.0.0.1",name="receive",system_id="smpp_client_1"} 15000
-
-Monitor smpp_client_0:
-
-./promwatch \
-  --url http://localhost:9999/metrics \
-  --metric 'submit_packets{name="receive",system_id="smpp_client_0"}' \
-  --rate \
-  --interval 1s
-
-Possible output:
+Or with exact labels:
 
 ```bash
+--metric 'submit_packets{name="receive",system_id="smpp_client_0"}'
+```
+
+The selector must match exactly one series. If multiple series match, add more labels.
+
+Supported label matching:
+
+```text
+=
+```
+
+PromQL operators such as `!=`, `=~`, and `!~` are not currently supported.
+
+## Interactive terminal mode
+
+When stdout is a TTY, promwatch uses a fixed-screen dashboard similar to tools such as `top`.
+
+Example:
+
+```text
 promwatch
 metric : submit_packets{name="receive",system_id="smpp_client_0"}
+status : OK
 type   : counter
 value  : 12540
 rate   : 2540/s
+updated: 2026-10-03T02:09:10+03:30
 
 ▁▂▂▃▄▅▅▆▆▇████
 
 samples: 18    interval: 17s
 ```
 
-## Counter Rate
+The interactive renderer:
 
-The first sample does not have a previous value, so a rate cannot yet
-be calculated:
+- enters the alternate screen;
+- hides the cursor while active;
+- redraws from the home position;
+- clears stale frame content;
+- sizes the graph from the current terminal width;
+- re-reads terminal dimensions on every refresh;
+- leaves one column unused to reduce terminal auto-wrap risk;
+- restores the cursor and normal screen on shutdown.
 
-rate   : --/s
+The frame is also bounded by terminal height. Very small terminals degrade to a truncated but valid frame instead of continuously wrapping.
 
-After the second sample, the rate becomes available.
+## Error handling
 
-For example:
+Transient Prometheus errors do not create a new terminal line on every poll in interactive mode.
 
-t=0s   counter=1000
-t=1s   counter=1250
-t=2s   counter=1510
+They are shown inside the same dashboard:
 
-The displayed rates will approximately be:
-
-t=0s   --
-t=1s   250/s
-t=2s   260/s
-
-The calculation uses the actual elapsed time between samples rather than
-assuming that the polling interval was exact.
-
-Counter Reset
-
-Counters can reset after a process restart or other events.
-
-Example:
-
-previous = 100000
-current  = 100
-
-promwatch interprets this as a counter reset and calculates:
-
-rate = 100 / elapsed_time
-
-rather than producing a large negative rate.
-
-History
-
-promwatch stores recent samples in memory.
-
-The current implementation keeps up to:
-
-3600 samples
-
-For a 1-second polling interval, this represents approximately:
-
-1 hour
-
-The history is not persisted to disk.
-
-Restarting promwatch starts a new history.
-
-Architecture
-
-The application is intentionally small:
-
-             HTTP
-              │
-              ▼
-       /metrics endpoint
-              │
-              ▼
-      Prometheus text parser
-              │
-              ▼
-       Metric selector
-              │
-              ▼
-       Single time series
-              │
-              ▼
-       In-memory history
-              │
-        ┌─────┴─────┐
-        │           │
-        ▼           ▼
-     Current       Rate
-      value      calculation
-        │           │
-        └─────┬─────┘
-              ▼
-        Terminal UI
-         Sparkline
-Why No Prometheus Server?
-
-promwatch is intended for situations where running a complete monitoring
-stack is unnecessary.
-
-For example:
-
-Debugging a telecom gateway over SSH
-Monitoring a production process temporarily
-Working on a secured server without a browser
-Checking TPS during a load test
-Inspecting a single metric during troubleshooting
-Monitoring a server where Prometheus/Grafana is not installed
-
-Instead of:
-
-Application
-    │
-    ▼
-Prometheus
-    │
-    ▼
-Grafana
-    │
-    ▼
-Browser
-
-you can use:
-
-Application
-    │
-    ▼
+```text
 promwatch
-    │
-    ▼
-Terminal
-SSH Usage
+metric : submit_packets{name="receive"}
+status : ERROR
+error  : connection refused
+type   : counter
+last value: 12540
+last ok: 2026-10-03T02:09:10+03:30
+```
 
-promwatch can be especially useful over SSH.
+When the endpoint recovers, the error is cleared on the next successful poll.
 
-For example:
+Startup/configuration errors are still printed once to stderr.
 
+## Non-TTY / piped output
+
+When stdout is redirected or piped, promwatch does not emit alternate-screen or cursor-control ANSI sequences.
+
+Instead it writes one plain line per poll:
+
+```text
+2026-10-03T02:09:10+03:30 status=ok metric="submit_packets{name=\"receive\"}" type=counter value=12540 rate=2540/s samples=18
+```
+
+Error example:
+
+```text
+2026-10-03T02:09:11+03:30 status=error metric="submit_packets{name=\"receive\"}" error="connection refused" last_value=12540 last_success=2026-10-03T02:09:10+03:30 samples=18
+```
+
+Examples:
+
+```bash
+./promwatch --metric 'submit_packets{name="receive"}' | head
+./promwatch --metric 'submit_packets{name="receive"}' > promwatch.log
+```
+
+This mode is suitable for shell pipelines, files, systemd/supervisor log capture, and CI.
+
+## Counter rate
+
+For `--rate`, the selected metric must expose:
+
+```text
+# TYPE submit_packets counter
+```
+
+Rate is calculated from consecutive samples using the actual elapsed time:
+
+```text
+rate = (current - previous) / elapsed_seconds
+```
+
+If the counter decreases, promwatch treats it as a reset and calculates from the new counter value instead of returning a negative rate.
+
+The first sample displays no rate because no previous sample exists.
+
+## History
+
+Up to 3600 samples are kept in memory.
+
+At a 1-second interval this is approximately one hour.
+
+History is not persisted; restarting promwatch starts a new history.
+
+## SSH usage
+
+`promwatch` is designed to work well over SSH:
+
+```bash
 ssh user@gateway
-
-Then:
 
 ./promwatch \
   --url http://localhost:9999/metrics \
   --metric 'submit_packets{name="receive",system_id="smpp_client_0"}' \
   --rate
+```
 
-No browser or port forwarding is required.
+The dashboard uses the terminal dimensions reported by the SSH TTY.
 
-Current Limitations
+## Windows
 
-The current version intentionally implements only a small subset of the
-Prometheus ecosystem.
+Modern Windows Terminal / PowerShell environments with ANSI/VT support can use the interactive dashboard. Redirected output automatically uses plain non-TTY mode.
 
-Supported:
-
-Prometheus text exposition format
-Metric names
-Labels
-# TYPE
-Counter values
-Gauge values
-NaN
-+Inf
--Inf
-Exact label matching using =
-
-Not currently supported:
-
-PromQL expressions
-!=
-=~
-!~
-Aggregations
-Multiple selected series
-Histograms
-Summaries
-Exemplars
-Persistent history
-Prometheus remote storage
-Multiple graphs at the same time
-Exit
+## Exit and terminal restoration
 
 Press:
 
+```text
 Ctrl+C
+```
 
 to stop promwatch.
 
-Future Improvements
+The application also listens for SIGTERM where supported. Both paths cancel the monitoring context and run terminal cleanup before returning.
 
-Possible future features:
+Renderer cleanup is idempotent, and a partial startup write triggers a best-effort restoration attempt.
 
-Multiple metrics on the same screen
---width and --height
-Better terminal UI
-!=, =~, and !~ label selectors
-Configurable history size
-Min/max/average statistics
-TPS and percentile display
-Gauge support
-Histogram visualization
-CSV export
-Snapshot mode
-Auto-discovery of metric names
-Metric aliases
-Threshold and alert indicators
-Multiple panels similar to a lightweight Grafana dashboard
-License
+## Supported Prometheus subset
+
+Supported:
+
+- metric names
+- exact labels
+- `# TYPE`
+- counter values
+- gauge values
+- `NaN`
+- `+Inf`
+- `-Inf`
+
+Not currently supported:
+
+- general PromQL expressions
+- `!=`, `=~`, `!~`
+- aggregations
+- multiple simultaneously selected series
+- histogram visualization
+- summary visualization
+- exemplars
+- persistent history
+- remote storage
+- multiple graph panels
+
+## Architecture
+
+```text
+Prometheus /metrics
+        |
+        v
+ text parser + selector
+        |
+        v
+    UI state
+ value / rate / history / error
+        |
+        v
+ TerminalRenderer
+      /   \
+     /     \
+  TTY       non-TTY
+ fixed      plain
+ screen     lines
+```
+
+## Verification
+
+The release verification checklist is maintained in:
+
+```text
+.codex/TR7_VERIFY.md
+```
+
+## License
 
 Internal/project-specific tool.

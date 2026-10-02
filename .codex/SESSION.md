@@ -6,79 +6,78 @@
 
 ## Current status
 
-**TR0 through TR5 are complete.**
+**TR0 through TR6 implementation is complete. TR7 documentation is complete; final executable/manual verification is pending on the current branch HEAD.**
 
-The interactive path now uses a fixed alternate-screen dashboard for both successful polls and transient errors. Non-interactive stdout now emits plain line-oriented records without ANSI control sequences.
+## Terminal-rendering work completed
 
-## Completed through TR3
+### TR0–TR1
 
-- Regression coverage for parsing/history/rate.
-- Testable renderer/frame separation.
-- Alternate-screen lifecycle.
-- Cursor-home redraw and stale-content clearing.
-- Responsive terminal width/height.
-- Sparkline width derived from the terminal.
-- Defensive rate handling for inconsistent history state.
+- regression baseline and tests;
+- renderer/frame abstraction.
 
-## TR4 — Error and status rendering
+### TR2–TR3
 
-Implemented:
+- alternate screen and in-place redraw;
+- cursor lifecycle;
+- responsive terminal dimensions;
+- width-bounded sparkline and height-bounded frame.
 
-- introduced `UIState` to carry selector, latest series, history, rate mode, current error, poll time, and last successful poll;
-- transient fetch errors are rendered into the dashboard instead of being appended to stderr;
-- rate-validation errors are also represented as dashboard state;
-- interactive frames now show `status : OK` or `status : ERROR`;
-- error frames include the error text and retain last known metric data when available;
-- last successful update time is retained across outages;
-- the next successful poll clears the error state automatically;
-- fatal startup/configuration errors still use one-shot stderr output;
-- renderer write failure is treated as fatal for the run and cancels the context instead of repeatedly spamming stderr.
+### TR4–TR5
 
-Result: a prolonged Prometheus outage redraws the same interactive screen rather than adding a new error line per poll.
+- errors/status represented as UI state;
+- no recurring interactive stderr spam for transient Prometheus failures;
+- TTY detection;
+- ANSI-free line-oriented non-TTY output.
 
-## TR5 — TTY and non-interactive fallback
+### TR6 — Lifecycle hardening
 
 Implemented:
 
-- stdout TTY detection continues to use `golang.org/x/term`;
-- alternate-screen/cursor ANSI lifecycle is only used for interactive TTY output;
-- non-TTY `Start()` and `Close()` emit nothing;
-- non-TTY `Render()` emits exactly one plain line per poll;
-- plain success records include status, metric, type, value, optional rate, and sample count;
-- plain error records include status, metric, quoted error text, and last-known value/success time when available;
-- redirected/piped output contains no terminal escape sequences;
-- tests cover both plain success and plain error output.
+- renderer `Close()` is explicitly idempotent;
+- renderer startup marks lifecycle state before terminal writes;
+- a partial/failed startup write triggers a best-effort restore;
+- monitoring lifecycle moved into `runMonitor()`, which owns renderer start/close;
+- deferred terminal restoration is executed for the shared context-cancellation path used by Ctrl+C and SIGTERM;
+- cancellation before first fetch still starts and restores the terminal correctly;
+- very small terminal dimensions are covered by tests;
+- Unicode sparkline/truncation paths are tested for valid UTF-8 and rune-safe truncation;
+- invalid monitor intervals are rejected before ticker creation.
 
-Example non-TTY success shape:
+New/extended tests include:
 
-```text
-2026-10-03T00:00:01Z status=ok metric="submit_packets{name=\"receive\"}" type=counter value=1250.0 rate=250/s samples=2
-```
+- `TestRendererCloseIsIdempotent`;
+- `TestRendererStartFailureAttemptsRestore`;
+- `TestBuildFrameHandlesTinyTerminal`;
+- `TestUnicodeSparklineAndTruncationRemainValidUTF8`;
+- `TestRunMonitorCanceledContextRestoresTerminal`;
+- `TestRunMonitorRejectsInvalidInterval`.
 
-Example non-TTY error shape:
+## TR7 — Verification and documentation
 
-```text
-2026-10-03T00:00:02Z status=error metric="submit_packets{name=\"receive\"}" error="connection refused" last_value=1250.0 last_success=2026-10-03T00:00:01Z samples=2
-```
+Completed in repository:
 
-## Verification status
+- README updated for the fixed-screen dashboard;
+- README documents error-state behavior;
+- README documents non-TTY output;
+- README documents SSH/Windows expectations;
+- README no longer claims the project has zero external dependencies;
+- `.codex/TR7_VERIFY.md` contains the complete automated/manual verification matrix;
+- session and task handoff files are updated.
 
-The implementation and regression tests for TR4/TR5 have been committed, but local execution should be run on the target checkout:
+Still requiring execution against this new HEAD:
 
-```bash
-go test ./...
-go vet ./...
-go build ./...
-```
+- gofmt;
+- `go test ./...`;
+- `go vet ./...`;
+- `go build ./...`;
+- manual normal/narrow/resize/outage/Ctrl+C verification;
+- SSH verification;
+- native modern-Windows verification when required.
 
-Also manually verify one pipe/redirect example:
-
-```bash
-./promwatch --metric '<selector>' --interval 1s | head
-```
-
-The piped output must contain plain text only and no visible ANSI escape sequences.
+These TR7 items are intentionally left unchecked until actually run.
 
 ## Next action
 
-Proceed to **TR6 — Lifecycle hardening** after the local test/vet/build gate passes.
+Run the commands and scenarios in `.codex/TR7_VERIFY.md`.
+
+After successful verification, update the remaining TR7 and Milestone Gate checkboxes and the branch is ready for final review/merge.

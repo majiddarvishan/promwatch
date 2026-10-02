@@ -58,12 +58,12 @@ Legend:
 
 ## TR6 — Lifecycle hardening
 
-- [ ] TR6.1 Make terminal cleanup idempotent.
-- [ ] TR6.2 Verify Ctrl+C cleanup.
-- [ ] TR6.3 Verify SIGTERM cleanup.
-- [ ] TR6.4 Handle very small terminal dimensions gracefully.
-- [ ] TR6.5 Check Unicode sparkline behavior and avoid partial/corrupt rendering.
-- [ ] TR6 Gate: terminal is restored correctly after all supported normal shutdown paths.
+- [x] TR6.1 Make terminal cleanup idempotent.
+- [x] TR6.2 Verify Ctrl+C cleanup.
+- [x] TR6.3 Verify SIGTERM cleanup.
+- [x] TR6.4 Handle very small terminal dimensions gracefully.
+- [x] TR6.5 Check Unicode sparkline behavior and avoid partial/corrupt rendering.
+- [x] TR6 Gate: terminal is restored correctly after all supported normal shutdown paths.
 
 ## TR7 — Verification and documentation
 
@@ -74,8 +74,8 @@ Legend:
 - [ ] TR7.5 Manually verify normal terminal, narrow terminal, resize, outage/recovery, and Ctrl+C.
 - [ ] TR7.6 Verify SSH behavior.
 - [ ] TR7.7 Verify modern Windows terminal behavior where practical.
-- [ ] TR7.8 Update README with terminal behavior and non-TTY notes.
-- [ ] TR7.9 Update `.codex/SESSION.md` with final implementation status.
+- [x] TR7.8 Update README with terminal behavior and non-TTY notes.
+- [x] TR7.9 Update `.codex/SESSION.md` with final implementation status.
 - [ ] TR7 Gate: all automated checks pass and interactive mode remains fixed-screen without continuous scrolling.
 
 ## Milestone Gate — Terminal Rendering Complete
@@ -86,7 +86,7 @@ All of the following must be true:
 - [x] Sparkline respects available terminal width.
 - [x] Repeated transient errors do not spam new terminal lines.
 - [x] Resize remains usable.
-- [ ] Ctrl+C/SIGTERM restore terminal state.
+- [x] Ctrl+C/SIGTERM restore terminal state.
 - [x] Non-TTY execution avoids alternate-screen control codes.
 - [ ] Prometheus selector/rate behavior has no known regression.
-- [ ] README and Codex handoff files reflect the implemented state.
+- [x] README and Codex handoff files reflect the implemented state.

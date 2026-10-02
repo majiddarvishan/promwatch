@@ -444,6 +444,114 @@ func validateRateMetric(series MetricSeries) error {
 	return nil
 }
 
+type monitorConfig struct {
+	URL      string
+	Selector Selector
+	Rate     bool
+	Interval time.Duration
+}
+
+func runMonitor(
+	ctx context.Context,
+	client *http.Client,
+	config monitorConfig,
+	renderer *TerminalRenderer,
+) (runErr error) {
+	if config.Interval <= 0 {
+		return errors.New("interval must be greater than zero")
+	}
+
+	if err := renderer.Start(); err != nil {
+		return fmt.Errorf("initializing terminal: %w", err)
+	}
+	defer func() {
+		if err := renderer.Close(); err != nil {
+			restoreErr := fmt.Errorf("restoring terminal: %w", err)
+			if runErr == nil {
+				runErr = restoreErr
+				return
+			}
+			runErr = errors.Join(runErr, restoreErr)
+		}
+	}()
+
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	history := &History{}
+	state := UIState{
+		Selector: config.Selector,
+		History:  history,
+		Rate:     config.Rate,
+	}
+
+	renderState := func() error {
+		if err := renderer.Render(state); err != nil {
+			return fmt.Errorf("rendering terminal: %w", err)
+		}
+		return nil
+	}
+
+	poll := func() error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		now := time.Now()
+		state.CheckedAt = now
+
+		series, err := fetchMetric(ctx, client, config.URL, config.Selector)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			state.Err = err
+			return renderState()
+		}
+
+		state.Series = series
+		state.HasSeries = true
+
+		if config.Rate {
+			if err := validateRateMetric(series); err != nil {
+				state.Err = err
+				return renderState()
+			}
+		}
+
+		appendHistory(history, series.Value, now)
+		state.Err = nil
+		state.LastSuccess = now
+		return renderState()
+	}
+
+	if err := poll(); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+
+	ticker := time.NewTicker(config.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+
+		case <-ticker.C:
+			if err := poll(); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return err
+			}
+		}
+	}
+}
+
 func main() {
 	url := flag.String(
 		"url",
@@ -487,84 +595,26 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := signal.NotifyContext(
+	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-	defer cancel()
+	defer stop()
 
 	client := &http.Client{
 		Timeout: 5 * time.Second,
 	}
 
-	history := &History{}
 	renderer := NewTerminalRenderer(os.Stdout)
-	if err := renderer.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: initializing terminal: %v\n", err)
-		return
-	}
-	defer func() {
-		if err := renderer.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "error: restoring terminal: %v\n", err)
-		}
-	}()
-
-	state := UIState{
+	config := monitorConfig{
+		URL:      *url,
 		Selector: selector,
-		History:  history,
 		Rate:     *rate,
+		Interval: *interval,
 	}
 
-	renderState := func() bool {
-		if err := renderer.Render(state); err != nil {
-			fmt.Fprintf(os.Stderr, "error: rendering terminal: %v\n", err)
-			cancel()
-			return false
-		}
-		return true
-	}
-
-	fetch := func() {
-		now := time.Now()
-		state.CheckedAt = now
-
-		series, err := fetchMetric(ctx, client, *url, selector)
-		if err != nil {
-			state.Err = err
-			renderState()
-			return
-		}
-
-		state.Series = series
-		state.HasSeries = true
-
-		if *rate {
-			if err := validateRateMetric(series); err != nil {
-				state.Err = err
-				renderState()
-				return
-			}
-		}
-
-		appendHistory(history, series.Value, now)
-		state.Err = nil
-		state.LastSuccess = now
-		renderState()
-	}
-
-	fetch()
-
-	ticker := time.NewTicker(*interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		case <-ticker.C:
-			fetch()
-		}
+	if err := runMonitor(ctx, client, config, renderer); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	}
 }

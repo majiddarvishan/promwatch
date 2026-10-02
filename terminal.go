@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -75,6 +76,10 @@ func (r *TerminalRenderer) Start() error {
 		return nil
 	}
 
+	// Mark the renderer active before writing control sequences so a partial
+	// startup write can still trigger a best-effort terminal restoration.
+	r.started = true
+
 	_, err := io.WriteString(
 		r.out,
 		enterAlternateScreenSequence+
@@ -82,12 +87,12 @@ func (r *TerminalRenderer) Start() error {
 			clearScreenSequence+
 			cursorHomeSequence,
 	)
-	if err != nil {
-		return err
+	if err == nil {
+		return nil
 	}
 
-	r.started = true
-	return nil
+	restoreErr := r.Close()
+	return errors.Join(err, restoreErr)
 }
 
 func (r *TerminalRenderer) Close() error {
@@ -95,16 +100,15 @@ func (r *TerminalRenderer) Close() error {
 		return nil
 	}
 
+	// Flip state before the write so cleanup remains idempotent even when the
+	// terminal itself returns an error while being restored.
+	r.started = false
+
 	_, err := io.WriteString(
 		r.out,
 		showCursorSequence+leaveAlternateScreenSequence,
 	)
-	if err != nil {
-		return err
-	}
-
-	r.started = false
-	return nil
+	return err
 }
 
 func (r *TerminalRenderer) Render(state UIState) error {
