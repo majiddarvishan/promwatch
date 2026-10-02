@@ -64,12 +64,18 @@ Completed in repository:
 - `.codex/TR7_VERIFY.md` contains the complete automated/manual verification matrix;
 - session and task handoff files are updated.
 
-Still requiring execution against this new HEAD:
+Automated verification completed successfully on the target checkout:
 
-- gofmt;
-- `go test ./...`;
-- `go vet ./...`;
-- `go build ./...`;
+- `gofmt` completed;
+- `git diff --check` passed;
+- `go test ./...` passed;
+- `go vet ./...` passed;
+- `go build ./...` passed;
+- `go.mod` was normalized to the dependencies actually used by the current code;
+- `terminal_test.go` received the expected gofmt-only whitespace cleanup.
+
+Still requiring execution:
+
 - manual normal/narrow/resize/outage/Ctrl+C verification;
 - SSH verification;
 - native modern-Windows verification when required.

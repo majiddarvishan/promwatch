@@ -293,7 +293,6 @@ func TestNormalizeTerminalSizeUsesPerDimensionFallback(t *testing.T) {
 	}
 }
 
-
 type failOnceWriter struct {
 	buf    bytes.Buffer
 	failed bool

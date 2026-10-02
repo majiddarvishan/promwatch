@@ -67,10 +67,10 @@ Legend:
 
 ## TR7 — Verification and documentation
 
-- [ ] TR7.1 Run `gofmt` on changed Go files.
-- [ ] TR7.2 Run `go test ./...`.
-- [ ] TR7.3 Run `go vet ./...`.
-- [ ] TR7.4 Run `go build ./...`.
+- [x] TR7.1 Run `gofmt` on changed Go files.
+- [x] TR7.2 Run `go test ./...`.
+- [x] TR7.3 Run `go vet ./...`.
+- [x] TR7.4 Run `go build ./...`.
 - [ ] TR7.5 Manually verify normal terminal, narrow terminal, resize, outage/recovery, and Ctrl+C.
 - [ ] TR7.6 Verify SSH behavior.
 - [ ] TR7.7 Verify modern Windows terminal behavior where practical.
@@ -88,5 +88,5 @@ All of the following must be true:
 - [x] Resize remains usable.
 - [x] Ctrl+C/SIGTERM restore terminal state.
 - [x] Non-TTY execution avoids alternate-screen control codes.
-- [ ] Prometheus selector/rate behavior has no known regression.
+- [x] Prometheus selector/rate behavior has no known regression.
 - [x] README and Codex handoff files reflect the implemented state.
