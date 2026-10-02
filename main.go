@@ -383,34 +383,6 @@ func appendHistory(history *History, value float64, timestamp time.Time) {
 	}
 }
 
-func render(selector Selector, series MetricSeries, history *History, rate bool) {
-	fmt.Print("\033[H\033[2J")
-
-	fmt.Printf("promwatch\n")
-	fmt.Printf("metric : %s\n", selectorToString(selector))
-	fmt.Printf("type   : %s\n", series.Type)
-	fmt.Printf("value  : %s\n", formatNumber(series.Value))
-
-	if rate {
-		r, ok := calculateRate(history)
-
-		if !ok {
-			fmt.Printf("rate   : --/s\n")
-		} else {
-			fmt.Printf("rate   : %s/s\n", formatNumber(r))
-		}
-	}
-
-	fmt.Printf("\n")
-
-	renderSparkline(history.Values)
-	fmt.Printf("\n\n")
-	fmt.Printf("samples: %d    interval: %s\n",
-		len(history.Values),
-		historyInterval(history),
-	)
-}
-
 func historyInterval(history *History) string {
 	if len(history.Times) < 2 {
 		return "--"
@@ -420,82 +392,6 @@ func historyInterval(history *History) string {
 		Sub(history.Times[0])
 
 	return d.Round(time.Second).String()
-}
-
-func renderSparkline(values []float64) {
-	if len(values) == 0 {
-		fmt.Println("(no data)")
-		return
-	}
-
-	const maxWidth = 120
-
-	start := 0
-	if len(values) > maxWidth {
-		start = len(values) - maxWidth
-	}
-
-	values = values[start:]
-
-	minValue := math.Inf(1)
-	maxValue := math.Inf(-1)
-
-	for _, value := range values {
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			continue
-		}
-
-		if value < minValue {
-			minValue = value
-		}
-
-		if value > maxValue {
-			maxValue = value
-		}
-	}
-
-	if math.IsInf(minValue, 1) || math.IsInf(maxValue, -1) {
-		fmt.Println("(no finite data)")
-		return
-	}
-
-	var output strings.Builder
-
-	for _, value := range values {
-		if math.IsNaN(value) {
-			output.WriteByte('?')
-			continue
-		}
-
-		if math.IsInf(value, 1) {
-			output.WriteByte('+')
-			continue
-		}
-
-		if math.IsInf(value, -1) {
-			output.WriteByte('-')
-			continue
-		}
-
-		level := 0
-
-		if maxValue > minValue {
-			ratio := (value - minValue) / (maxValue - minValue)
-			level = int(math.Round(ratio * float64(len(sparkChars)-1)))
-		}
-
-		if level < 0 {
-			level = 0
-		}
-
-		if level >= len(sparkChars) {
-			level = len(sparkChars) - 1
-		}
-
-		output.WriteRune([]rune(sparkChars)[level])
-	}
-
-	fmt.Println(output.String())
 }
 
 func formatNumber(value float64) string {
@@ -600,6 +496,7 @@ func main() {
 	}
 
 	history := &History{}
+	renderer := NewTerminalRenderer(os.Stdout)
 
 	fetch := func() {
 		series, err := fetchMetric(ctx, client, *url, selector)
@@ -619,12 +516,9 @@ func main() {
 
 		appendHistory(history, series.Value, now)
 
-		render(
-			selector,
-			series,
-			history,
-			*rate,
-		)
+		if err := renderer.Render(selector, series, history, *rate); err != nil {
+			fmt.Fprintf(os.Stderr, "\rerror: rendering terminal: %v\n", err)
+		}
 	}
 
 	fetch()

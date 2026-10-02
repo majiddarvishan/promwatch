@@ -7,19 +7,19 @@ Legend:
 
 ## TR0 — Baseline and regression safety
 
-- [ ] TR0.1 Document exact current rendering behavior and known failure cases.
-- [ ] TR0.2 Add/organize tests for selector parsing, metric parsing, label matching, history, and rate logic before refactoring.
-- [ ] TR0.3 Add test coverage for frame-related pure functions as they are introduced.
-- [ ] TR0.4 Establish baseline commands: `go test ./...`, `go vet ./...`, `go build ./...`.
-- [ ] TR0 Gate: baseline tests/build pass before terminal behavior changes.
+- [x] TR0.1 Document exact current rendering behavior and known failure cases.
+- [x] TR0.2 Add/organize tests for selector parsing, metric parsing, label matching, history, and rate logic before refactoring.
+- [x] TR0.3 Add test coverage for frame-related pure functions as they are introduced.
+- [x] TR0.4 Establish baseline commands: `go test ./...`, `go vet ./...`, `go build ./...`.
+- [x] TR0 Gate: baseline tests/build pass before terminal behavior changes.
 
 ## TR1 — Terminal abstraction
 
-- [ ] TR1.1 Introduce a small terminal capability/renderer abstraction.
-- [ ] TR1.2 Separate direct terminal control writes from metric polling logic.
-- [ ] TR1.3 Make frame construction testable without a real TTY.
-- [ ] TR1.4 Keep metric selection/rate semantics unchanged.
-- [ ] TR1 Gate: existing behavior remains functionally equivalent before alternate-screen activation.
+- [x] TR1.1 Introduce a small terminal capability/renderer abstraction.
+- [x] TR1.2 Separate direct terminal control writes from metric polling logic.
+- [x] TR1.3 Make frame construction testable without a real TTY.
+- [x] TR1.4 Keep metric selection/rate semantics unchanged.
+- [x] TR1 Gate: existing behavior remains functionally equivalent before alternate-screen activation.
 
 ## TR2 — Stable interactive screen
 
