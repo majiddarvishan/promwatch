@@ -102,5 +102,5 @@ All of the following must be true:
 - [x] TR8.7 Surface threshold state in interactive and non-TTY output.
 - [x] TR8.8 Add threshold unit tests and documentation.
 - [x] TR8.9 Run `gofmt`, `go test ./...`, `go vet ./...`, and `go build ./...`.
-- [ ] TR8.10 Manually verify a real threshold exceed writes the expected file record.
-- [ ] TR8 Gate: automated and manual threshold verification pass.
+- [x] TR8.10 Manually verify a real threshold exceed writes the expected file record.
+- [x] TR8 Gate: automated and manual threshold verification pass.
