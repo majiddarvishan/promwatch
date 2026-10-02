@@ -25,48 +25,64 @@ func TestBuildSparkline(t *testing.T) {
 	}
 }
 
-func TestBuildFramePreservesLayoutAtWideSize(t *testing.T) {
-	base := time.Unix(100, 0)
-	selector := Selector{Name: "submit_packets", Labels: map[string]string{"name": "receive"}}
-	series := MetricSeries{Name: "submit_packets", Type: "counter", Value: 1250}
-	history := &History{
-		Values: []float64{1000, 1250},
-		Times:  []time.Time{base, base.Add(time.Second)},
+func testState() UIState {
+	base := time.Unix(100, 0).UTC()
+	return UIState{
+		Selector:  Selector{Name: "submit_packets", Labels: map[string]string{"name": "receive"}},
+		Series:    MetricSeries{Name: "submit_packets", Type: "counter", Value: 1250},
+		HasSeries: true,
+		History: &History{
+			Values: []float64{1000, 1250},
+			Times:  []time.Time{base, base.Add(time.Second)},
+		},
+		Rate:        true,
+		CheckedAt:   base.Add(time.Second),
+		LastSuccess: base.Add(time.Second),
 	}
+}
 
-	got := buildFrame(
-		selector,
-		series,
-		history,
-		true,
-		TerminalSize{Width: 200, Height: 24},
-	)
-	want := "promwatch\n" +
-		"metric : submit_packets{name=\"receive\"}\n" +
-		"type   : counter\n" +
-		"value  : 1250.0\n" +
-		"rate   : 250/s\n" +
-		"\n" +
-		"▁█\n\n\n" +
-		"samples: 2    interval: 1s"
+func TestBuildFrameShowsHealthyStatus(t *testing.T) {
+	got := buildFrame(testState(), TerminalSize{Width: 200, Height: 24})
 
-	if got != want {
-		t.Fatalf("frame mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	for _, want := range []string{
+		"status : OK",
+		"type   : counter",
+		"value  : 1250.0",
+		"rate   : 250/s",
+		"samples: 2    interval: 1s",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("frame missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildFrameShowsErrorAndLastGoodData(t *testing.T) {
+	state := testState()
+	state.Err = errors.New("connection refused")
+	state.CheckedAt = state.CheckedAt.Add(time.Second)
+
+	got := buildFrame(state, TerminalSize{Width: 200, Height: 24})
+
+	for _, want := range []string{
+		"status : ERROR",
+		"error  : connection refused",
+		"last value: 1250.0",
+		"last ok:",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error frame missing %q:\n%s", want, got)
+		}
 	}
 }
 
 func TestBuildFrameBoundsWidthAndHeight(t *testing.T) {
-	base := time.Unix(100, 0)
-	selector := Selector{
+	state := testState()
+	state.Selector = Selector{
 		Name: "very_long_metric_name",
 		Labels: map[string]string{
 			"instance": "a-very-long-instance-name",
 		},
-	}
-	series := MetricSeries{Name: selector.Name, Type: "counter", Value: 1250}
-	history := &History{
-		Values: []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
-		Times:  []time.Time{base, base.Add(time.Second)},
 	}
 
 	const (
@@ -75,10 +91,7 @@ func TestBuildFrameBoundsWidthAndHeight(t *testing.T) {
 	)
 
 	frame := buildFrame(
-		selector,
-		series,
-		history,
-		true,
+		state,
 		TerminalSize{Width: terminalWidth, Height: terminalHeight},
 	)
 	lines := strings.Split(frame, "\n")
@@ -116,14 +129,10 @@ func TestRendererInteractiveLifecycle(t *testing.T) {
 	}
 
 	buf.Reset()
-
-	selector := Selector{Name: "gauge", Labels: map[string]string{}}
-	series := MetricSeries{Name: "gauge", Type: "gauge", Value: 3}
-	history := &History{Values: []float64{3}, Times: []time.Time{time.Unix(0, 0)}}
-
-	if err := renderer.Render(selector, series, history, false); err != nil {
+	if err := renderer.Render(testState()); err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
+
 	if !strings.HasPrefix(buf.String(), cursorHomeSequence+"promwatch\n") {
 		t.Fatalf("render output does not begin at cursor home: %q", buf.String())
 	}
@@ -144,6 +153,34 @@ func TestRendererInteractiveLifecycle(t *testing.T) {
 	}
 }
 
+func TestInteractiveErrorsRedrawInPlace(t *testing.T) {
+	var buf bytes.Buffer
+	renderer := newTerminalRenderer(
+		&buf,
+		true,
+		func() (int, int, error) { return 80, 24, nil },
+	)
+	renderer.started = true
+
+	state := testState()
+	state.Err = errors.New("endpoint unavailable")
+
+	if err := renderer.Render(state); err != nil {
+		t.Fatalf("first Render() error = %v", err)
+	}
+	if err := renderer.Render(state); err != nil {
+		t.Fatalf("second Render() error = %v", err)
+	}
+
+	got := buf.String()
+	if strings.Count(got, cursorHomeSequence) != 2 {
+		t.Fatalf("cursor-home count = %d, want 2", strings.Count(got, cursorHomeSequence))
+	}
+	if strings.Contains(got, enterAlternateScreenSequence) || strings.Contains(got, clearScreenSequence) {
+		t.Fatalf("error redraw unexpectedly re-enters/clears screen: %q", got)
+	}
+}
+
 func TestRendererReadsSizeOnEveryRender(t *testing.T) {
 	var buf bytes.Buffer
 	width := 20
@@ -158,18 +195,12 @@ func TestRendererReadsSizeOnEveryRender(t *testing.T) {
 	)
 	renderer.started = true
 
-	selector := Selector{Name: "gauge", Labels: map[string]string{}}
-	series := MetricSeries{Name: "gauge", Type: "gauge", Value: 3}
-	history := &History{
-		Values: []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-		Times:  []time.Time{time.Unix(0, 0)},
-	}
-
-	if err := renderer.Render(selector, series, history, false); err != nil {
+	state := testState()
+	if err := renderer.Render(state); err != nil {
 		t.Fatalf("first Render() error = %v", err)
 	}
 	width = 10
-	if err := renderer.Render(selector, series, history, false); err != nil {
+	if err := renderer.Render(state); err != nil {
 		t.Fatalf("second Render() error = %v", err)
 	}
 
@@ -192,6 +223,61 @@ func TestRendererFallsBackWhenSizeUnavailable(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("currentSize() = %#v, want %#v", got, want)
+	}
+}
+
+func TestNonInteractiveOutputHasNoANSI(t *testing.T) {
+	var buf bytes.Buffer
+	renderer := newTerminalRenderer(&buf, false, nil)
+
+	if err := renderer.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := renderer.Render(testState()); err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if err := renderer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	got := buf.String()
+	if strings.Contains(got, "\x1b[") {
+		t.Fatalf("non-interactive output contains ANSI: %q", got)
+	}
+	for _, want := range []string{
+		"status=ok",
+		"metric=\"submit_packets{name=\\\"receive\\\"}\"",
+		"type=counter",
+		"value=1250.0",
+		"rate=250/s",
+		"samples=2",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("non-interactive output missing %q: %q", want, got)
+		}
+	}
+	if !strings.HasSuffix(got, "\n") {
+		t.Fatalf("non-interactive output must be line-oriented: %q", got)
+	}
+}
+
+func TestNonInteractiveErrorIsPlainLine(t *testing.T) {
+	state := testState()
+	state.Err = errors.New("connection refused")
+
+	got := buildPlainLine(state)
+	if strings.Contains(got, "\x1b[") {
+		t.Fatalf("plain error contains ANSI: %q", got)
+	}
+	for _, want := range []string{
+		"status=error",
+		"error=\"connection refused\"",
+		"last_value=1250.0",
+		"last_success=",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("plain error missing %q: %q", want, got)
+		}
 	}
 }
 

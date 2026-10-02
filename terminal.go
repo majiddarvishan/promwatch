@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -27,6 +28,17 @@ const (
 type TerminalSize struct {
 	Width  int
 	Height int
+}
+
+type UIState struct {
+	Selector    Selector
+	Series      MetricSeries
+	HasSeries   bool
+	History     *History
+	Rate        bool
+	Err         error
+	CheckedAt   time.Time
+	LastSuccess time.Time
 }
 
 type terminalSizeProvider func() (int, int, error)
@@ -95,14 +107,9 @@ func (r *TerminalRenderer) Close() error {
 	return nil
 }
 
-func (r *TerminalRenderer) Render(selector Selector, series MetricSeries, history *History, rate bool) error {
-	size := r.currentSize()
-	frame := buildFrame(selector, series, history, rate, size)
-
+func (r *TerminalRenderer) Render(state UIState) error {
 	if !r.interactive {
-		// Non-TTY behavior is finalized in TR5. Preserve the legacy clear/redraw
-		// behavior here while TR2 focuses on the interactive dashboard.
-		_, err := io.WriteString(r.out, cursorHomeSequence+clearScreenSequence+frame)
+		_, err := io.WriteString(r.out, buildPlainLine(state)+"\n")
 		return err
 	}
 
@@ -112,6 +119,7 @@ func (r *TerminalRenderer) Render(selector Selector, series MetricSeries, histor
 		}
 	}
 
+	frame := buildFrame(state, r.currentSize())
 	_, err := io.WriteString(
 		r.out,
 		cursorHomeSequence+frame+clearToEndSequence,
@@ -152,42 +160,65 @@ func normalizeTerminalSize(width, height int) TerminalSize {
 	}
 }
 
-func buildFrame(
-	selector Selector,
-	series MetricSeries,
-	history *History,
-	rate bool,
-	size TerminalSize,
-) string {
+func buildFrame(state UIState, size TerminalSize) string {
 	size = normalizeTerminalSize(size.Width, size.Height)
 	width := drawableWidth(size.Width)
 
-	lines := []string{
-		"promwatch",
-		fmt.Sprintf("metric : %s", selectorToString(selector)),
-		fmt.Sprintf("type   : %s", series.Type),
-		fmt.Sprintf("value  : %s", formatNumber(series.Value)),
+	status := "OK"
+	if state.Err != nil {
+		status = "ERROR"
 	}
 
-	if rate {
-		r, ok := calculateRate(history)
-		if !ok {
-			lines = append(lines, "rate   : --/s")
-		} else {
-			lines = append(lines, fmt.Sprintf("rate   : %s/s", formatNumber(r)))
+	lines := []string{
+		"promwatch",
+		fmt.Sprintf("metric : %s", selectorToString(state.Selector)),
+		fmt.Sprintf("status : %s", status),
+	}
+
+	if state.Err != nil {
+		lines = append(lines, fmt.Sprintf("error  : %s", state.Err))
+
+		if state.HasSeries {
+			lines = append(
+				lines,
+				fmt.Sprintf("type   : %s", state.Series.Type),
+				fmt.Sprintf("last value: %s", formatNumber(state.Series.Value)),
+			)
+		}
+
+		if !state.LastSuccess.IsZero() {
+			lines = append(lines, fmt.Sprintf("last ok: %s", state.LastSuccess.Format(time.RFC3339)))
+		}
+	} else if state.HasSeries {
+		lines = append(
+			lines,
+			fmt.Sprintf("type   : %s", state.Series.Type),
+			fmt.Sprintf("value  : %s", formatNumber(state.Series.Value)),
+		)
+
+		if state.Rate {
+			r, ok := calculateRate(state.History)
+			if !ok {
+				lines = append(lines, "rate   : --/s")
+			} else {
+				lines = append(lines, fmt.Sprintf("rate   : %s/s", formatNumber(r)))
+			}
+		}
+
+		if !state.LastSuccess.IsZero() {
+			lines = append(lines, fmt.Sprintf("updated: %s", state.LastSuccess.Format(time.RFC3339)))
 		}
 	}
 
 	lines = append(
 		lines,
 		"",
-		buildSparkline(history.Values, width),
-		"",
+		buildSparkline(historyValues(state.History), width),
 		"",
 		fmt.Sprintf(
 			"samples: %d    interval: %s",
-			len(history.Values),
-			historyInterval(history),
+			historySampleCount(state.History),
+			historyInterval(state.History),
 		),
 	)
 
@@ -202,14 +233,72 @@ func buildFrame(
 	return strings.Join(lines, "\n")
 }
 
+func buildPlainLine(state UIState) string {
+	parts := make([]string, 0, 10)
+
+	if !state.CheckedAt.IsZero() {
+		parts = append(parts, state.CheckedAt.Format(time.RFC3339))
+	}
+
+	status := "ok"
+	if state.Err != nil {
+		status = "error"
+	}
+
+	parts = append(
+		parts,
+		"status="+status,
+		fmt.Sprintf("metric=%q", selectorToString(state.Selector)),
+	)
+
+	if state.Err != nil {
+		parts = append(parts, fmt.Sprintf("error=%q", state.Err.Error()))
+
+		if state.HasSeries {
+			parts = append(parts, "last_value="+formatNumber(state.Series.Value))
+		}
+		if !state.LastSuccess.IsZero() {
+			parts = append(parts, "last_success="+state.LastSuccess.Format(time.RFC3339))
+		}
+	} else if state.HasSeries {
+		parts = append(
+			parts,
+			"type="+state.Series.Type,
+			"value="+formatNumber(state.Series.Value),
+		)
+
+		if state.Rate {
+			if r, ok := calculateRate(state.History); ok {
+				parts = append(parts, "rate="+formatNumber(r)+"/s")
+			} else {
+				parts = append(parts, "rate=--/s")
+			}
+		}
+	}
+
+	parts = append(parts, fmt.Sprintf("samples=%d", historySampleCount(state.History)))
+	return strings.Join(parts, " ")
+}
+
+func historyValues(history *History) []float64 {
+	if history == nil {
+		return nil
+	}
+	return history.Values
+}
+
+func historySampleCount(history *History) int {
+	if history == nil {
+		return 0
+	}
+	return len(history.Values)
+}
+
 func drawableWidth(terminalWidth int) int {
 	if terminalWidth <= 1 {
 		return 1
 	}
 
-	// Avoid writing into the final column. Many terminals defer wrapping until
-	// the next printable character, which can make a subsequent newline look
-	// like an extra wrapped line.
 	return terminalWidth - 1
 }
 

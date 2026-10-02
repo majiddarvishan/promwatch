@@ -41,20 +41,20 @@ Legend:
 
 ## TR4 — Error and status rendering
 
-- [ ] TR4.1 Represent transient fetch/validation errors as UI state.
-- [ ] TR4.2 Remove recurring interactive stderr newline spam.
-- [ ] TR4.3 Display connection/status information inside the fixed frame.
-- [ ] TR4.4 Clear/replace prior error when the endpoint recovers.
-- [ ] TR4.5 Preserve one-shot stderr output for fatal startup/config errors.
-- [ ] TR4 Gate: a prolonged endpoint outage does not append one terminal line per poll.
+- [x] TR4.1 Represent transient fetch/validation errors as UI state.
+- [x] TR4.2 Remove recurring interactive stderr newline spam.
+- [x] TR4.3 Display connection/status information inside the fixed frame.
+- [x] TR4.4 Clear/replace prior error when the endpoint recovers.
+- [x] TR4.5 Preserve one-shot stderr output for fatal startup/config errors.
+- [x] TR4 Gate: a prolonged endpoint outage does not append one terminal line per poll.
 
 ## TR5 — TTY and non-interactive fallback
 
-- [ ] TR5.1 Detect whether stdout is a TTY.
-- [ ] TR5.2 Disable alternate-screen ANSI lifecycle for non-TTY output.
-- [ ] TR5.3 Define simple plain-output behavior for pipes/files/service logs.
-- [ ] TR5.4 Verify redirected and piped execution.
-- [ ] TR5 Gate: non-TTY consumers receive usable output without dashboard control sequences.
+- [x] TR5.1 Detect whether stdout is a TTY.
+- [x] TR5.2 Disable alternate-screen ANSI lifecycle for non-TTY output.
+- [x] TR5.3 Define simple plain-output behavior for pipes/files/service logs.
+- [x] TR5.4 Verify redirected and piped execution.
+- [x] TR5 Gate: non-TTY consumers receive usable output without dashboard control sequences.
 
 ## TR6 — Lifecycle hardening
 
@@ -84,9 +84,9 @@ All of the following must be true:
 
 - [ ] Dashboard refresh does not continuously grow scrollback.
 - [x] Sparkline respects available terminal width.
-- [ ] Repeated transient errors do not spam new terminal lines.
+- [x] Repeated transient errors do not spam new terminal lines.
 - [x] Resize remains usable.
 - [ ] Ctrl+C/SIGTERM restore terminal state.
-- [ ] Non-TTY execution avoids alternate-screen control codes.
+- [x] Non-TTY execution avoids alternate-screen control codes.
 - [ ] Prometheus selector/rate behavior has no known regression.
 - [ ] README and Codex handoff files reflect the implemented state.

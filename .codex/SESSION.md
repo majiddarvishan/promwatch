@@ -6,82 +6,79 @@
 
 ## Current status
 
-**TR0, TR1, TR2, and TR3 are complete.**
+**TR0 through TR5 are complete.**
 
-The interactive dashboard now uses a stable alternate-screen lifecycle and derives its layout from the current terminal dimensions on every render.
+The interactive path now uses a fixed alternate-screen dashboard for both successful polls and transient errors. Non-interactive stdout now emits plain line-oriented records without ANSI control sequences.
 
-## Completed through TR1
+## Completed through TR3
 
-- Regression protection for selector parsing, metric parsing, label matching, history, and rate behavior.
-- Testable `TerminalRenderer`, `buildFrame`, and `buildSparkline` separation.
-- Baseline documentation in `.codex/TR0_BASELINE.md`.
+- Regression coverage for parsing/history/rate.
+- Testable renderer/frame separation.
+- Alternate-screen lifecycle.
+- Cursor-home redraw and stale-content clearing.
+- Responsive terminal width/height.
+- Sparkline width derived from the terminal.
+- Defensive rate handling for inconsistent history state.
 
-## TR2 — Stable interactive screen
-
-Implemented:
-
-- alternate-screen entry for an interactive terminal;
-- cursor hiding while the dashboard is active;
-- initial alternate-screen clear;
-- redraw from cursor home instead of appending frames;
-- clear-to-end after each frame so shorter frames do not leave stale text;
-- cursor restoration and alternate-screen exit on normal shutdown;
-- renderer lifecycle tests.
-
-Interactive successful refreshes no longer require a full-screen clear on every poll and do not append one complete dashboard after another to normal terminal scrollback.
-
-Transient poll errors are intentionally unchanged and remain a TR4 concern.
-
-## TR3 — Responsive dimensions and resize
+## TR4 — Error and status rendering
 
 Implemented:
 
-- terminal TTY/size support using `golang.org/x/term`;
-- Go-1.23-compatible `golang.org/x/term v0.31.0`;
-- `80x24` fallback when terminal size cannot be read;
-- width and height normalization;
-- terminal dimensions read again on every render;
-- sparkline width derived from the current terminal width;
-- no fixed 120-column dashboard sparkline;
-- one-column safety margin to avoid last-column auto-wrap;
-- line truncation to the drawable terminal width;
-- frame height bounded to the terminal height;
-- tests for narrow terminals, fallback sizing, and repeated size reads for resize behavior.
+- introduced `UIState` to carry selector, latest series, history, rate mode, current error, poll time, and last successful poll;
+- transient fetch errors are rendered into the dashboard instead of being appended to stderr;
+- rate-validation errors are also represented as dashboard state;
+- interactive frames now show `status : OK` or `status : ERROR`;
+- error frames include the error text and retain last known metric data when available;
+- last successful update time is retained across outages;
+- the next successful poll clears the error state automatically;
+- fatal startup/configuration errors still use one-shot stderr output;
+- renderer write failure is treated as fatal for the run and cancels the context instead of repeatedly spamming stderr.
 
-## Important phase boundary
+Result: a prolonged Prometheus outage redraws the same interactive screen rather than adding a new error line per poll.
 
-TR4 is still pending.
+## TR5 — TTY and non-interactive fallback
 
-Therefore repeated Prometheus fetch/validation errors may still print newline-based stderr output. The successful dashboard refresh path is fixed-screen, but complete no-scroll behavior during outages depends on TR4.
+Implemented:
 
-TR5 is also still pending. Minimal TTY detection is now required by TR2/TR3, but plain non-interactive output semantics have not yet been finalized.
+- stdout TTY detection continues to use `golang.org/x/term`;
+- alternate-screen/cursor ANSI lifecycle is only used for interactive TTY output;
+- non-TTY `Start()` and `Close()` emit nothing;
+- non-TTY `Render()` emits exactly one plain line per poll;
+- plain success records include status, metric, type, value, optional rate, and sample count;
+- plain error records include status, metric, quoted error text, and last-known value/success time when available;
+- redirected/piped output contains no terminal escape sequences;
+- tests cover both plain success and plain error output.
 
-## Dependency change
-
-Added:
+Example non-TTY success shape:
 
 ```text
-golang.org/x/term v0.31.0
-golang.org/x/sys v0.32.0 // indirect
+2026-10-03T00:00:01Z status=ok metric="submit_packets{name=\"receive\"}" type=counter value=1250.0 rate=250/s samples=2
 ```
 
-The selected x/term line is compatible with the project's Go 1.23 baseline.
+Example non-TTY error shape:
+
+```text
+2026-10-03T00:00:02Z status=error metric="submit_packets{name=\"receive\"}" error="connection refused" last_value=1250.0 last_success=2026-10-03T00:00:01Z samples=2
+```
+
+## Verification status
+
+The implementation and regression tests for TR4/TR5 have been committed, but local execution should be run on the target checkout:
+
+```bash
+go test ./...
+go vet ./...
+go build ./...
+```
+
+Also manually verify one pipe/redirect example:
+
+```bash
+./promwatch --metric '<selector>' --interval 1s | head
+```
+
+The piped output must contain plain text only and no visible ANSI escape sequences.
 
 ## Next action
 
-Proceed to **TR4 — Error and status rendering**.
-
-Primary next goal: move transient polling/validation errors into dashboard state so an endpoint outage cannot generate a new stderr line on every poll.
-
-
-## Post-TR3 regression fix
-
-A TR3 width/height test exposed that `calculateRate()` could panic when presented with an internally inconsistent `History` where `Values` and `Times` had different lengths.
-
-Fix applied:
-
-- `calculateRate()` now returns `(0, false)` for nil history, insufficient timestamps, or mismatched `Values`/`Times` lengths instead of indexing past the timestamp slice.
-- Added a regression case for mismatched history lengths.
-- This also makes frame rendering robust against malformed test/internal state and prevents a rendering-path panic.
-
-The originally reported failure in `TestBuildFrameBoundsWidthAndHeight` is addressed by this guard without weakening the resize test.
+Proceed to **TR6 — Lifecycle hardening** after the local test/vet/build gate passes.

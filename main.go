@@ -387,7 +387,7 @@ func appendHistory(history *History, value float64, timestamp time.Time) {
 }
 
 func historyInterval(history *History) string {
-	if len(history.Times) < 2 {
+	if history == nil || len(history.Times) < 2 {
 		return "--"
 	}
 
@@ -510,27 +510,47 @@ func main() {
 		}
 	}()
 
+	state := UIState{
+		Selector: selector,
+		History:  history,
+		Rate:     *rate,
+	}
+
+	renderState := func() bool {
+		if err := renderer.Render(state); err != nil {
+			fmt.Fprintf(os.Stderr, "error: rendering terminal: %v\n", err)
+			cancel()
+			return false
+		}
+		return true
+	}
+
 	fetch := func() {
+		now := time.Now()
+		state.CheckedAt = now
+
 		series, err := fetchMetric(ctx, client, *url, selector)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\rerror: %v\n", err)
+			state.Err = err
+			renderState()
 			return
 		}
 
+		state.Series = series
+		state.HasSeries = true
+
 		if *rate {
 			if err := validateRateMetric(series); err != nil {
-				fmt.Fprintf(os.Stderr, "\rerror: %v\n", err)
+				state.Err = err
+				renderState()
 				return
 			}
 		}
 
-		now := time.Now()
-
 		appendHistory(history, series.Value, now)
-
-		if err := renderer.Render(selector, series, history, *rate); err != nil {
-			fmt.Fprintf(os.Stderr, "\rerror: rendering terminal: %v\n", err)
-		}
+		state.Err = nil
+		state.LastSuccess = now
+		renderState()
 	}
 
 	fetch()
