@@ -28,18 +28,16 @@ Implemented:
 - write failures are surfaced rather than silently ignored;
 - threshold logger close is idempotent.
 
-## Verification pending
+## Verification status
 
-Run:
+Automated verification passed on the user's checkout:
 
-```bash
-gofmt -w main.go terminal.go threshold.go main_test.go terminal_test.go runner_test.go threshold_test.go
-git diff --check
-go test ./...
-go vet ./...
-go build ./...
-```
+- `gofmt` completed;
+- `git diff --check` passed;
+- `go test ./...` passed;
+- `go vet ./...` passed;
+- `go build ./...` passed.
 
-Then run against a real counter using a threshold below the current rate and confirm that the configured file receives records.
+Only the real threshold-exceed file-write check remains.
 
 After those checks pass, mark TR8.9, TR8.10, and TR8 Gate complete.
