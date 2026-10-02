@@ -72,3 +72,16 @@ The selected x/term line is compatible with the project's Go 1.23 baseline.
 Proceed to **TR4 — Error and status rendering**.
 
 Primary next goal: move transient polling/validation errors into dashboard state so an endpoint outage cannot generate a new stderr line on every poll.
+
+
+## Post-TR3 regression fix
+
+A TR3 width/height test exposed that `calculateRate()` could panic when presented with an internally inconsistent `History` where `Values` and `Times` had different lengths.
+
+Fix applied:
+
+- `calculateRate()` now returns `(0, false)` for nil history, insufficient timestamps, or mismatched `Values`/`Times` lengths instead of indexing past the timestamp slice.
+- Added a regression case for mismatched history lengths.
+- This also makes frame rendering robust against malformed test/internal state and prevents a rendering-path panic.
+
+The originally reported failure in `TestBuildFrameBoundsWidthAndHeight` is addressed by this guard without weakening the resize test.

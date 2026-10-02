@@ -345,7 +345,10 @@ func selectorToString(selector Selector) string {
 }
 
 func calculateRate(history *History) (float64, bool) {
-	if len(history.Values) < 2 {
+	if history == nil ||
+		len(history.Values) < 2 ||
+		len(history.Times) < 2 ||
+		len(history.Values) != len(history.Times) {
 		return 0, false
 	}
 

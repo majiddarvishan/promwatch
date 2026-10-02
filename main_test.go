@@ -122,6 +122,11 @@ func TestCalculateRate(t *testing.T) {
 			history: History{Values: []float64{100, 110}, Times: []time.Time{base, base}},
 			ok:      false,
 		},
+		{
+			name:    "mismatched history lengths",
+			history: History{Values: []float64{100, 110, 120}, Times: []time.Time{base, base.Add(time.Second)}},
+			ok:      false,
+		},
 	}
 
 	for _, tt := range tests {
